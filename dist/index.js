@@ -7,7 +7,6 @@ var __export = (target, all) => {
 
 // src/index.ts
 import express from "express";
-import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -588,7 +587,6 @@ var DDoSProtection = class DDoSProtection2 {
   static {
     __name(this, "DDoSProtection");
   }
-  userRecently = /* @__PURE__ */ new Set();
   usersMap = /* @__PURE__ */ new Map();
   ddosCount = 0;
   isDDoSAttack = false;
@@ -602,12 +600,16 @@ var DDoSProtection = class DDoSProtection2 {
     setInterval(() => {
       if (!this.isDDoSAttack && this.ddosCount > this.config.ddosThreshold) {
         this.isDDoSAttack = true;
-        for (let i = 0; i < 20; i++) {
-          console.log("[DEFENSE SYSTEM] WARNING DDOS ATTACK DETECTED!");
+        if (this.config.enableLogging) {
+          for (let i = 0; i < 5; i++) {
+            console.log("[DEFENSE SYSTEM] WARNING DDOS ATTACK DETECTED!");
+          }
         }
         setTimeout(() => {
-          for (let i = 0; i < 20; i++) {
-            console.log("[DEFENSE SYSTEM] DDOS ATTACKS NOW STOPPED!");
+          if (this.config.enableLogging) {
+            for (let i = 0; i < 5; i++) {
+              console.log("[DEFENSE SYSTEM] DDOS ATTACKS NOW STOPPED!");
+            }
           }
           this.isDDoSAttack = false;
         }, this.config.ddosTimeout);
@@ -624,10 +626,10 @@ var DDoSProtection = class DDoSProtection2 {
           if (this.config.enableLogging) {
             console.log(`[DDOS] Ban expired and removed: ${key}`);
           }
-        } else if (!userData.banned && now - userData.firstRequest > this.config.userDataTimeout) {
+        } else if (!userData.banned && now - userData.lastRequest > this.config.userDataTimeout * 2) {
           this.usersMap.delete(key);
           if (this.config.enableLogging) {
-            console.log(`[DDOS] User data expired and removed: ${key}`);
+            console.log(`[DDOS] Inactive user removed: ${key}`);
           }
         }
       }
@@ -637,14 +639,14 @@ var DDoSProtection = class DDoSProtection2 {
     if (req.headers["cf-connecting-ip"]) {
       return req.headers["cf-connecting-ip"];
     }
-    let ip = (req.headers["x-forwarded-for"] || "").replace(/:\d+$/, "") || req.connection?.remoteAddress || req.socket?.remoteAddress || req.ip;
+    let ip = (req.headers["x-forwarded-for"] || "").split(",")[0].replace(/:\d+$/, "").trim() || req.connection?.remoteAddress || req.socket?.remoteAddress || req.ip;
     if (ip?.includes("::ffff:")) {
-      ip = ip.split(":").reverse()[0];
+      ip = ip.split(":").pop() || ip;
     }
     if (ip === "127.0.0.1" || ip === "::1") {
-      return "1.11.111.1111";
+      return "0.0.0.0";
     }
-    return ip || "1.11.111.1111";
+    return ip || "0.0.0.0";
   }
   async getGeoLocation(ip, req) {
     if (req.headers["cf-ipcountry"]) {
@@ -661,59 +663,56 @@ var DDoSProtection = class DDoSProtection2 {
       const now = Date.now();
       let userData = this.usersMap.get(userKey);
       if (userData?.banned) {
-        if (userData.banExpiry && now > userData.banExpiry) {
-          this.usersMap.delete(userKey);
-          userData = void 0;
+        if (userData.banExpiry && now < userData.banExpiry) {
           if (this.config.enableLogging) {
-            console.log(`[DDOS] Ban expired: ${ipAddress}`);
-          }
-        } else {
-          const remaining = userData.banExpiry ? Math.ceil((userData.banExpiry - now) / 1e3) : 0;
-          if (this.config.enableLogging) {
-            console.log(`[DDOS] Blocked banned user: ${ipAddress} (${remaining}s remaining)`);
+            const remaining = Math.ceil((userData.banExpiry - now) / 1e3);
+            console.log(`[DDOS] Blocked banned IP: ${ipAddress} (${remaining}s remaining)`);
           }
           return {
             blocked: true,
             reason: "USER_BANNED",
             message: {
-              WARNING: "You have been temporarily banned for sending too many requests",
-              "Remaining Ban Time": `${remaining} seconds`,
-              "Support Mail": this.config.supportMail,
-              info: this.config.mainInfo
+              WARNING: "Your IP has been temporarily blocked",
+              Reason: "Excessive request rate",
+              "Block Expires In": `${Math.ceil((userData.banExpiry - now) / 1e3)} seconds`,
+              "Support Mail": this.config.supportMail
             }
           };
         }
+        this.usersMap.delete(userKey);
+        userData = void 0;
       }
       if (!userData) {
         userData = {
-          count: 1,
+          count: 0,
           firstRequest: now,
+          lastRequest: now,
           banned: false
         };
         this.usersMap.set(userKey, userData);
-      } else {
-        if (now - userData.firstRequest <= this.config.userDataTimeout) {
-          userData.count++;
-        } else {
-          userData.count = 1;
-          userData.firstRequest = now;
-        }
       }
+      const windowExpired = now - userData.firstRequest > this.config.userDataTimeout;
+      if (windowExpired) {
+        userData.count = 0;
+        userData.firstRequest = now;
+      }
+      userData.count++;
+      userData.lastRequest = now;
       if (userData.count > this.config.maxRequestsPerUser) {
         userData.banned = true;
         userData.banExpiry = now + this.config.userBanTimeout;
         if (this.config.enableLogging) {
-          console.log(`[DDOS] User banned: ${ipAddress} (${userData.count} requests in ${Math.ceil((now - userData.firstRequest) / 1e3)}s)`);
+          console.log(`[DDOS] Banned IP: ${ipAddress} (${userData.count} requests in ${Math.ceil((now - userData.firstRequest) / 1e3)}s)`);
         }
         return {
           blocked: true,
           reason: "RATE_LIMIT_EXCEEDED",
           message: {
-            WARNING: "Rate limit exceeded - You have been temporarily banned",
-            "Requests Made": userData.count,
-            "Ban Duration": `${Math.ceil(this.config.userBanTimeout / 1e3)} seconds`,
-            "Support Mail": this.config.supportMail,
-            info: this.config.mainInfo
+            WARNING: "Request rate limit exceeded",
+            "Max Requests": this.config.maxRequestsPerUser,
+            "Your Requests": userData.count,
+            "Block Duration": `${Math.ceil(this.config.userBanTimeout / 1e3)} seconds`,
+            "Support Mail": this.config.supportMail
           }
         };
       }
@@ -723,22 +722,23 @@ var DDoSProtection = class DDoSProtection2 {
             blocked: true,
             reason: "GLOBAL_DDOS",
             message: {
-              WARNING: "Global DDOS Detected",
-              Mail: this.config.supportMail
+              WARNING: "Service temporarily restricted",
+              Reason: "DDoS protection active",
+              "Support Mail": this.config.supportMail
             }
           };
         }
         this.ddosCount += 1;
       }
       if (this.config.enableLogging) {
-        const windowTime = Math.ceil((now - userData.firstRequest) / 1e3);
-        console.log(`[DDOS-LOG] Request from ${geo} (${ipAddress}) | Count: ${userData.count}/${this.config.maxRequestsPerUser} in ${windowTime}s | Global-DOS: ${this.ddosCount}/${this.config.ddosThreshold}`);
+        const windowProgress = Math.ceil((now - userData.firstRequest) / 1e3);
+        console.log(`[DDOS-LOG] ${ipAddress} (${geo}) | Requests: ${userData.count}/${this.config.maxRequestsPerUser} | Window: ${windowProgress}s/${Math.ceil(this.config.userDataTimeout / 1e3)}s | Global: ${this.ddosCount}/${this.config.ddosThreshold}`);
       }
       return {
         blocked: false
       };
     } catch (error) {
-      console.error("[DDOS] Error in protection check:", error);
+      console.error("[DDOS] Protection error:", error);
       return {
         blocked: false
       };
@@ -753,19 +753,6 @@ var DDoSProtection = class DDoSProtection2 {
   }
   get activeUsers() {
     return this.usersMap.size;
-  }
-  // Method to get current user stats (for debugging)
-  getUserStats() {
-    const stats = {};
-    for (const [key, userData] of this.usersMap.entries()) {
-      stats[key] = {
-        count: userData.count,
-        banned: userData.banned,
-        windowAge: userData.firstRequest ? Math.ceil((Date.now() - userData.firstRequest) / 1e3) : 0,
-        banTimeRemaining: userData.banExpiry ? Math.max(0, Math.ceil((userData.banExpiry - Date.now()) / 1e3)) : 0
-      };
-    }
-    return stats;
   }
 };
 var ddosProtection_default = DDoSProtection;
@@ -794,9 +781,9 @@ var appConfig = {
 var ddosProtection = new ddosProtection_default({
   maxRequestsPerUser: 100,
   ddosThreshold: 200,
-  ddosTimeout: 36e5,
-  userBanTimeout: 3e5,
-  userDataTimeout: 12e4,
+  ddosTimeout: 3e4,
+  userBanTimeout: 6e5,
+  userDataTimeout: 6e5,
   mainCountry: appConfig.mainCountry,
   supportMail: appConfig.supportMail,
   mainInfo: appConfig.mainInfo,
@@ -815,14 +802,6 @@ app.use(express.urlencoded({
   limit: "10mb"
 }));
 app.use(cookieParser());
-var limiter = rateLimit({
-  windowMs: 15 * 60 * 1e3,
-  max: 100,
-  message: "Too many requests from this IP, please try again later.",
-  standardHeaders: true,
-  legacyHeaders: false
-});
-app.use(limiter);
 var wafConfig = {
   dryMode: false,
   disableLogging: false,
@@ -887,8 +866,8 @@ app.use(async (req, res, next) => {
   if (appConfig.protectedUrls.some((protectedUrl) => url.startsWith(protectedUrl))) {
     if (!appConfig.disableDdosProtection) {
       const ddosResult = await ddosProtection.checkRequest(req);
-      if (ddosResult.blocked) {
-        console.log(`\u{1F6E1}\uFE0F  DDoS Protection blocked request from ${req.ip} - Reason: ${ddosResult.reason}`);
+      if (ddosResult.blocked && ddosResult.reason === "GLOBAL_DDOS") {
+      } else if (ddosResult.blocked) {
         return res.status(429).json(ddosResult.message);
       }
     }

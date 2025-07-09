@@ -1,7 +1,7 @@
 // src/index.ts
 import express from 'express';
 
-import rateLimit from 'express-rate-limit';
+// import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -128,16 +128,16 @@ const appConfig = {
     mainInfo: process.env['MAIN_INFO'] || 'You can send an e-mail in english.',
     ddosLog: process.env['DDOS_LOG'] === 'true',
     disableDdosProtection: process.env['DISABLE_DDOS'] === 'true',
-    protectedUrls: ['/', '/error', '/api', '/admin', '/auth', '/user', '/logs', '/health'], // /health is included
+    protectedUrls: ['/', '/error', '/admin', '/auth', '/user', '/logs', '/health'], // /health is included
 };
 
 // Initialize DDoS Protection
 const ddosProtection = new DDoSProtection({
-    maxRequestsPerUser: 100,        // 100 requests per user (keep this)
-    ddosThreshold: 200,             // 200 for global DDoS detection
-    ddosTimeout: 3600000,           // 1 hour global DDoS timeout
-    userBanTimeout: 300000,         // 5 minutes ban (300,000ms = 5 minutes)
-    userDataTimeout: 120000,        // 2 minutes window for user data
+    maxRequestsPerUser: 100, // 100 requests per user (keep this)
+    ddosThreshold: 200, // 200 for global DDoS detection
+    ddosTimeout: 30000, // 30s DDoS mode
+    userBanTimeout: 600000, // 10-minute ban
+    userDataTimeout: 600000, // 10-minute window (600k ms)
     mainCountry: appConfig.mainCountry,
     supportMail: appConfig.supportMail,
     mainInfo: appConfig.mainInfo,
@@ -157,14 +157,14 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // Rate limiting
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100,
-    message: 'Too many requests from this IP, please try again later.',
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-app.use(limiter);
+// const limiter = rateLimit({
+//     windowMs: 15 * 60 * 1000, // 15 minutes
+//     max: 100,
+//     message: 'Too many requests from this IP, please try again later.',
+//     standardHeaders: true,
+//     legacyHeaders: false,
+// });
+// app.use(limiter);
 
 // WAF Configuration
 const wafConfig: EasyWaf.Config = {
@@ -248,8 +248,9 @@ app.use(async (req, res, next) => {
         if (!appConfig.disableDdosProtection) {
             const ddosResult = await ddosProtection.checkRequest(req);
 
-            if (ddosResult.blocked) {
-                console.log(`🛡️  DDoS Protection blocked request from ${req.ip} - Reason: ${ddosResult.reason}`);
+            if (ddosResult.blocked && ddosResult.reason === 'GLOBAL_DDOS') {
+                
+            } else if (ddosResult.blocked) {
                 return res.status(429).json(ddosResult.message);
             }
         }
@@ -676,19 +677,19 @@ app.use(async (req, res, next) => {
 //     try {
 //         // Get attack counts by type
 //         const [attackTypes] = await db.execute(`
-//       SELECT attack_type, COUNT(*) as count 
-//       FROM attack_logs 
+//       SELECT attack_type, COUNT(*) as count
+//       FROM attack_logs
 //       WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-//       GROUP BY attack_type 
+//       GROUP BY attack_type
 //       ORDER BY count DESC
 //     `);
 
 //         // Get attacks by hour for last 24 hours
 //         const [hourlyStats] = await db.execute(`
-//       SELECT 
+//       SELECT
 //         DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') as hour,
 //         COUNT(*) as count
-//       FROM attack_logs 
+//       FROM attack_logs
 //       WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
 //       GROUP BY hour
 //       ORDER BY hour
@@ -697,7 +698,7 @@ app.use(async (req, res, next) => {
 //         // Get top attacking IPs
 //         const [topIPs] = await db.execute(`
 //       SELECT ip_address, COUNT(*) as count
-//       FROM attack_logs 
+//       FROM attack_logs
 //       WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
 //       GROUP BY ip_address
 //       ORDER BY count DESC
@@ -793,8 +794,6 @@ app.get('/', (_req, res) => {
         timestamp: new Date().toISOString(),
     });
 });
-
-
 
 // Health check and monitoring endpoints
 app.get('/health', (_req, res) => {
