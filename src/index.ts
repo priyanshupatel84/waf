@@ -128,16 +128,16 @@ const appConfig = {
     mainInfo: process.env['MAIN_INFO'] || 'You can send an e-mail in english.',
     ddosLog: process.env['DDOS_LOG'] === 'true',
     disableDdosProtection: process.env['DISABLE_DDOS'] === 'true',
-    protectedUrls: ['/', '/error', '/api', '/admin', '/auth', '/user', '/logs', '/health'],
+    protectedUrls: ['/', '/error', '/api', '/admin', '/auth', '/user', '/logs', '/health'], // /health is included
 };
 
 // Initialize DDoS Protection
 const ddosProtection = new DDoSProtection({
-    maxRequestsPerUser: 100, // 100 requests per user
-    ddosThreshold: 200, // 200 for global DDoS detection
-    ddosTimeout: 3600000, // 1 h
-    userBanTimeout: 300000, //  5 minutes ban
-    userDataTimeout: 60000, // 1 minutes window
+    maxRequestsPerUser: 100,        // 100 requests per user (keep this)
+    ddosThreshold: 200,             // 200 for global DDoS detection
+    ddosTimeout: 3600000,           // 1 hour global DDoS timeout
+    userBanTimeout: 300000,         // 5 minutes ban (300,000ms = 5 minutes)
+    userDataTimeout: 120000,        // 2 minutes window for user data
     mainCountry: appConfig.mainCountry,
     supportMail: appConfig.supportMail,
     mainInfo: appConfig.mainInfo,
@@ -794,21 +794,6 @@ app.get('/', (_req, res) => {
     });
 });
 
-app.get('/api', (_req, res) => {
-    res.json({
-        message: 'Hello! My name is API.',
-        protected: true,
-        timestamp: new Date().toISOString(),
-    });
-});
-
-app.get('/welcome', (_req, res) => {
-    res.json({
-        message: 'Welcome! This endpoint has WAF protection only.',
-        protected: false,
-        timestamp: new Date().toISOString(),
-    });
-});
 
 
 // Health check and monitoring endpoints
@@ -994,8 +979,6 @@ app.get('/health', (_req, res) => {
         
         <div class="timestamp">
             <div style="margin-bottom: 10px;">
-                <strong>Client IP:</strong> 192.168.1.100
-            </div>
             <span id="current-time">Last checked: Loading...</span>
         </div>
     </div>
