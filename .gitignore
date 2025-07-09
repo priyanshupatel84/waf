@@ -1,0 +1,16 @@
+# Local dev and OS artifacts
+node_modules/
+*.log
+*.gz
+*.tgz
+coverage/
+test/temp.js
+
+# Environment files (you’ll set these in Render’s dashboard)
+.env
+
+# IDE / editor metadata
+.github/
+.vscode/
+.idea/
+examples/
